@@ -439,32 +439,84 @@ frameborder="1"
 
     </script>
 
-    <!-- 自定义触摸支持 -->
+    <!-- 自定义触摸支持：暴露触摸状态给 Python -->
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    (function() {
+        window.gameTouchState = "none";
+        window.gameTouchX = 0;
+        window.gameTouchY = 0;
+
+        function getGamePos(canvas, clientX, clientY) {
+            var rect = canvas.getBoundingClientRect();
+            var scaleX = 800 / rect.width;
+            var scaleY = 600 / rect.height;
+            return {
+                x: Math.floor((clientX - rect.left) * scaleX),
+                y: Math.floor((clientY - rect.top) * scaleY)
+            };
+        }
+
         function setupCanvasTouch() {
             var canvas = document.getElementById('canvas');
             if (!canvas) {
-                setTimeout(setupCanvasTouch, 100);
+                setTimeout(setupCanvasTouch, 200);
                 return;
             }
+
             // 阻止浏览器默认触摸行为
             canvas.addEventListener('touchstart', function(e) {
                 e.preventDefault();
+                var touch = e.touches[0];
+                var pos = getGamePos(canvas, touch.clientX, touch.clientY);
+                window.gameTouchX = pos.x;
+                window.gameTouchY = pos.y;
+                window.gameTouchState = "down";
                 canvas.focus();
             }, { passive: false });
+
             canvas.addEventListener('touchmove', function(e) {
                 e.preventDefault();
+                var touch = e.touches[0];
+                var pos = getGamePos(canvas, touch.clientX, touch.clientY);
+                window.gameTouchX = pos.x;
+                window.gameTouchY = pos.y;
             }, { passive: false });
+
             canvas.addEventListener('touchend', function(e) {
                 e.preventDefault();
+                window.gameTouchState = "up";
             }, { passive: false });
+
+            // 鼠标支持（桌面端）
+            canvas.addEventListener('mousedown', function(e) {
+                var pos = getGamePos(canvas, e.clientX, e.clientY);
+                window.gameTouchX = pos.x;
+                window.gameTouchY = pos.y;
+                window.gameTouchState = "down";
+                canvas.focus();
+            });
+
+            canvas.addEventListener('mousemove', function(e) {
+                var pos = getGamePos(canvas, e.clientX, e.clientY);
+                window.gameTouchX = pos.x;
+                window.gameTouchY = pos.y;
+            });
+
+            canvas.addEventListener('mouseup', function(e) {
+                window.gameTouchState = "up";
+            });
+
             // 自动聚焦
             canvas.focus();
-            console.log('Touch support initialized');
+            console.log('Touch/JS bridge initialized');
         }
-        setupCanvasTouch();
-    });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupCanvasTouch);
+        } else {
+            setupCanvasTouch();
+        }
+    })();
     </script>
 
 </body>
