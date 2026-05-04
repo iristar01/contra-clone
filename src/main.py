@@ -134,38 +134,29 @@ class Game:
                     elif self.state == 'gameover':
                         self.start_game()
 
-            # ========== 触摸/鼠标按下 ==========
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                btn_name = self._check_button_press(event.pos)
+            # ========== 鼠标/触摸按下 ==========
+            if event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
+                # 获取坐标
+                if event.type == pygame.FINGERDOWN:
+                    ex = int(event.x * SCREEN_WIDTH)
+                    ey = int(event.y * SCREEN_HEIGHT)
+                else:
+                    ex, ey = event.pos
+
+                # 菜单/结束画面：点击屏幕任意位置开始游戏
+                if self.state in ('menu', 'gameover'):
+                    self.start_game()
+                    continue
+
+                # 游戏画面：检测虚拟按钮
+                btn_name = self._check_button_press((ex, ey))
                 if btn_name:
                     btn = self.buttons[btn_name]
                     btn['pressed'] = True
                     self.virtual_keys[btn['key']] = True
-                    # 菜单/结束画面的开始按钮
-                    if btn_name == 'start' and self.state in ('menu', 'gameover'):
-                        self.start_game()
 
-            # ========== 触摸/鼠标松开 ==========
-            if event.type == pygame.MOUSEBUTTONUP:
-                # 释放所有虚拟按键（单点触摸简化处理）
-                for btn in self.buttons.values():
-                    btn['pressed'] = False
-                    self.virtual_keys[btn['key']] = False
-
-            # ========== 多点触摸支持（原生触屏事件）==========
-            if event.type == pygame.FINGERDOWN:
-                # 转换归一化坐标为屏幕坐标
-                fx = int(event.x * SCREEN_WIDTH)
-                fy = int(event.y * SCREEN_HEIGHT)
-                btn_name = self._check_button_press((fx, fy))
-                if btn_name:
-                    btn = self.buttons[btn_name]
-                    btn['pressed'] = True
-                    self.virtual_keys[btn['key']] = True
-                    if btn_name == 'start' and self.state in ('menu', 'gameover'):
-                        self.start_game()
-
-            if event.type == pygame.FINGERUP:
+            # ========== 鼠标/触摸松开 ==========
+            if event.type == pygame.MOUSEBUTTONUP or event.type == pygame.FINGERUP:
                 for btn in self.buttons.values():
                     btn['pressed'] = False
                     self.virtual_keys[btn['key']] = False
