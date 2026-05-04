@@ -57,6 +57,8 @@ class Game:
         # ========== 虚拟手柄 ==========
         self.virtual_keys = {}  # pygame.K_xxx -> bool
         self._init_virtual_buttons()
+        self.mouse_pos = (0, 0)
+        self.prev_mouse_down = False
 
     def _init_virtual_buttons(self):
         """初始化虚拟按钮配置"""
@@ -113,7 +115,7 @@ class Game:
         self.powerup_manager.spawn(400, SCREEN_HEIGHT - TILE_SIZE - 50, 'spread')
 
     def handle_events(self):
-        """处理输入事件"""
+        """处理输入事件（仅处理键盘和退出，触摸用轮询）"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -134,32 +136,12 @@ class Game:
                     elif self.state == 'gameover':
                         self.start_game()
 
-            # ========== 鼠标/触摸按下 ==========
-            if event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
-                # 获取坐标
-                if event.type == pygame.FINGERDOWN:
-                    ex = int(event.x * SCREEN_WIDTH)
-                    ey = int(event.y * SCREEN_HEIGHT)
+            # 跟踪鼠标位置（用于轮询）
+            if event.type == pygame.MOUSEMOTION or event.type == pygame.FINGERMOTION:
+                if event.type == pygame.FINGERMOTION:
+                    self.mouse_pos = (int(event.x * SCREEN_WIDTH), int(event.y * SCREEN_HEIGHT))
                 else:
-                    ex, ey = event.pos
-
-                # 菜单/结束画面：点击屏幕任意位置开始游戏
-                if self.state in ('menu', 'gameover'):
-                    self.start_game()
-                    continue
-
-                # 游戏画面：检测虚拟按钮
-                btn_name = self._check_button_press((ex, ey))
-                if btn_name:
-                    btn = self.buttons[btn_name]
-                    btn['pressed'] = True
-                    self.virtual_keys[btn['key']] = True
-
-            # ========== 鼠标/触摸松开 ==========
-            if event.type == pygame.MOUSEBUTTONUP or event.type == pygame.FINGERUP:
-                for btn in self.buttons.values():
-                    btn['pressed'] = False
-                    self.virtual_keys[btn['key']] = False
+                    self.mouse_pos = event.pos
 
         # 持续按键检测（物理键盘 + 虚拟按键合并）
         keys = self._get_keys()
@@ -168,8 +150,39 @@ class Game:
             if keys[pygame.K_j] or keys[pygame.K_z]:
                 self.player.shoot(self.bullet_manager, self.particles)
 
+    def _poll_touch_input(self):
+        """轮询鼠标/触摸状态（pygbag 移动端更可靠）"""
+        mouse_down = pygame.mouse.get_pressed()[0]
+        self.mouse_pos = pygame.mouse.get_pos()
+
+        if self.state in ('menu', 'gameover'):
+            # 菜单/结束画面：点击即开始
+            if mouse_down and not self.prev_mouse_down:
+                self.start_game()
+            self.prev_mouse_down = mouse_down
+            return
+
+        if self.state == 'playing':
+            if mouse_down:
+                btn_name = self._check_button_press(self.mouse_pos)
+                if btn_name:
+                    btn = self.buttons[btn_name]
+                    btn['pressed'] = True
+                    self.virtual_keys[btn['key']] = True
+                # 如果按在非按钮区域，保留之前的按键状态（避免误触）
+            else:
+                # 松开时清空所有虚拟按键
+                for btn in self.buttons.values():
+                    btn['pressed'] = False
+                    self.virtual_keys[btn['key']] = False
+
+        self.prev_mouse_down = mouse_down
+
     def update(self, dt):
         """更新游戏逻辑"""
+        # 轮询触摸输入（每帧都执行）
+        self._poll_touch_input()
+
         if self.state != 'playing':
             return
 

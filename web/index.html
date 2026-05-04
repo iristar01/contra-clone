@@ -439,5 +439,33 @@ frameborder="1"
 
     </script>
 
+    <!-- 自定义触摸支持 -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        function setupCanvasTouch() {
+            var canvas = document.getElementById('canvas');
+            if (!canvas) {
+                setTimeout(setupCanvasTouch, 100);
+                return;
+            }
+            // 阻止浏览器默认触摸行为
+            canvas.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                canvas.focus();
+            }, { passive: false });
+            canvas.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+            }, { passive: false });
+            canvas.addEventListener('touchend', function(e) {
+                e.preventDefault();
+            }, { passive: false });
+            // 自动聚焦
+            canvas.focus();
+            console.log('Touch support initialized');
+        }
+        setupCanvasTouch();
+    });
+    </script>
+
 </body>
 </html>
