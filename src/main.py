@@ -1,5 +1,6 @@
 """
 魂斗罗风格射击游戏 - 主程序
+支持键盘 + 触屏虚拟手柄
 """
 import pygame
 import random
@@ -24,7 +25,7 @@ class Game:
         try:
             pygame.mixer.init()
         except (NotImplementedError, pygame.error):
-            pass  # mixer 不可用，静默跳过
+            pass
 
         # 窗口
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -50,8 +51,47 @@ class Game:
         self.wave = 1
         self.spawn_points = []
 
-        # 闪烁计时（用于UI闪烁效果）
+        # 闪烁计时
         self.blink_timer = 0
+
+        # ========== 虚拟手柄 ==========
+        self.virtual_keys = {}  # pygame.K_xxx -> bool
+        self._init_virtual_buttons()
+
+    def _init_virtual_buttons(self):
+        """初始化虚拟按钮配置"""
+        r = 36  # 按钮半径
+        # 左下角方向键
+        self.buttons = {
+            'left':  {'key': pygame.K_LEFT,  'x': 70,  'y': 530, 'r': r, 'label': '←'},
+            'right': {'key': pygame.K_RIGHT, 'x': 170, 'y': 530, 'r': r, 'label': '→'},
+            'up':    {'key': pygame.K_UP,    'x': 120, 'y': 480, 'r': r, 'label': '↑'},
+            'down':  {'key': pygame.K_DOWN,  'x': 120, 'y': 580, 'r': r, 'label': '↓'},
+            'jump':  {'key': pygame.K_SPACE, 'x': 620, 'y': 530, 'r': r + 4, 'label': '跳'},
+            'shoot': {'key': pygame.K_j,     'x': 730, 'y': 530, 'r': r + 4, 'label': '射'},
+            'start': {'key': pygame.K_RETURN,'x': SCREEN_WIDTH // 2, 'y': 480, 'r': 50, 'label': '开始'},
+        }
+        # 预渲染按钮表面
+        for name, btn in self.buttons.items():
+            btn['pressed'] = False
+
+    def _get_keys(self):
+        """合并物理键盘 + 虚拟按键，返回兼容 pygame.key.get_pressed() 的序列"""
+        keys = list(pygame.key.get_pressed())
+        for k, pressed in self.virtual_keys.items():
+            if pressed and 0 <= k < len(keys):
+                keys[k] = True
+        return keys
+
+    def _check_button_press(self, pos):
+        """检测触摸位置是否在某个按钮内"""
+        x, y = pos
+        for name, btn in self.buttons.items():
+            dx = x - btn['x']
+            dy = y - btn['y']
+            if dx * dx + dy * dy <= btn['r'] * btn['r']:
+                return name
+        return None
 
     def start_game(self):
         """开始新游戏"""
@@ -94,11 +134,46 @@ class Game:
                     elif self.state == 'gameover':
                         self.start_game()
 
-        # 持续按键检测
-        keys = pygame.key.get_pressed()
+            # ========== 触摸/鼠标按下 ==========
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                btn_name = self._check_button_press(event.pos)
+                if btn_name:
+                    btn = self.buttons[btn_name]
+                    btn['pressed'] = True
+                    self.virtual_keys[btn['key']] = True
+                    # 菜单/结束画面的开始按钮
+                    if btn_name == 'start' and self.state in ('menu', 'gameover'):
+                        self.start_game()
+
+            # ========== 触摸/鼠标松开 ==========
+            if event.type == pygame.MOUSEBUTTONUP:
+                # 释放所有虚拟按键（单点触摸简化处理）
+                for btn in self.buttons.values():
+                    btn['pressed'] = False
+                    self.virtual_keys[btn['key']] = False
+
+            # ========== 多点触摸支持（原生触屏事件）==========
+            if event.type == pygame.FINGERDOWN:
+                # 转换归一化坐标为屏幕坐标
+                fx = int(event.x * SCREEN_WIDTH)
+                fy = int(event.y * SCREEN_HEIGHT)
+                btn_name = self._check_button_press((fx, fy))
+                if btn_name:
+                    btn = self.buttons[btn_name]
+                    btn['pressed'] = True
+                    self.virtual_keys[btn['key']] = True
+                    if btn_name == 'start' and self.state in ('menu', 'gameover'):
+                        self.start_game()
+
+            if event.type == pygame.FINGERUP:
+                for btn in self.buttons.values():
+                    btn['pressed'] = False
+                    self.virtual_keys[btn['key']] = False
+
+        # 持续按键检测（物理键盘 + 虚拟按键合并）
+        keys = self._get_keys()
 
         if self.state == 'playing' and self.player and self.player.alive:
-            # 射击（J 或 Z）
             if keys[pygame.K_j] or keys[pygame.K_z]:
                 self.player.shoot(self.bullet_manager, self.particles)
 
@@ -107,14 +182,13 @@ class Game:
         if self.state != 'playing':
             return
 
-        keys = pygame.key.get_pressed()
+        keys = self._get_keys()
 
         # 更新玩家
         if self.player.alive:
             self.player.update(keys, self.level.platforms, self.level.walls, dt)
             self.camera.follow(self.player.rect)
         else:
-            # 玩家死亡，等待重启
             if keys[pygame.K_RETURN]:
                 self.state = 'gameover'
 
@@ -162,7 +236,6 @@ class Game:
                         self.particles.add_explosion(enemy.rect.centerx, enemy.rect.centery, 25)
                         self.score += self._get_enemy_score(enemy.enemy_type)
                         self.camera.shake(5, 150)
-                        # 概率掉落道具
                         if random.random() < 0.15:
                             self.powerup_manager.spawn(enemy.rect.centerx, enemy.rect.centery)
                     break
@@ -184,7 +257,6 @@ class Game:
                 self.player.take_damage(1)
                 self.particles.add_hit_effect(self.player.rect.centerx, self.player.rect.centery, COLOR_RED)
                 self.camera.shake(6, 150)
-                # 弹开敌人
                 enemy.vx = -enemy.vx * 2
                 enemy.facing_right = not enemy.facing_right
                 break
@@ -194,7 +266,6 @@ class Game:
             if self.player.alive and self.player.rect.colliderect(hazard.rect):
                 self.player.take_damage(1)
                 self.particles.add_hit_effect(self.player.rect.centerx, self.player.rect.centery, COLOR_RED)
-                # 弹开
                 self.player.vy = -8
                 self.player.vx = -5 if self.player.facing_right else 5
                 break
@@ -214,18 +285,71 @@ class Game:
         }
         return scores.get(enemy_type, 100)
 
+    def _draw_virtual_buttons(self):
+        """绘制虚拟手柄按钮"""
+        # 只在需要的场景显示对应按钮
+        show_dpad = self.state in ('playing', 'paused')
+        show_action = self.state in ('playing', 'paused')
+        show_start = self.state in ('menu', 'gameover')
+
+        for name, btn in self.buttons.items():
+            if name == 'start' and not show_start:
+                continue
+            if name in ('left', 'right', 'up', 'down') and not show_dpad:
+                continue
+            if name in ('jump', 'shoot') and not show_action:
+                continue
+
+            x, y, r = btn['x'], btn['y'], btn['r']
+            pressed = btn['pressed']
+
+            # 按钮底色
+            alpha = 180 if pressed else 120
+            color_base = (60, 60, 80, alpha) if not pressed else (100, 100, 140, alpha)
+            surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, color_base, (r, r), r)
+            pygame.draw.circle(surf, (255, 255, 255, 60), (r, r), r, 2)
+
+            # 按钮文字
+            if self.ui.font_available:
+                font_size = 24 if name in ('jump', 'shoot') else 20
+                try:
+                    font = pygame.font.SysFont("simhei", font_size, bold=True)
+                except:
+                    font = pygame.font.Font(None, font_size)
+                label = font.render(btn['label'], True, COLOR_WHITE)
+                lx = r - label.get_width() // 2
+                ly = r - label.get_height() // 2
+                surf.blit(label, (lx, ly))
+            else:
+                # 无字体时画简单标识
+                pygame.draw.rect(surf, COLOR_WHITE, (r - 6, r - 2, 12, 4))
+                if name == 'up':
+                    pygame.draw.rect(surf, COLOR_WHITE, (r - 2, r - 6, 4, 12))
+                elif name == 'down':
+                    pygame.draw.rect(surf, COLOR_WHITE, (r - 2, r - 2, 4, 12))
+                elif name == 'left':
+                    pygame.draw.rect(surf, COLOR_WHITE, (r - 6, r - 2, 12, 4))
+                    pygame.draw.rect(surf, COLOR_WHITE, (r - 6, r - 6, 4, 12))
+                elif name == 'right':
+                    pygame.draw.rect(surf, COLOR_WHITE, (r - 6, r - 2, 12, 4))
+                    pygame.draw.rect(surf, COLOR_WHITE, (r + 2, r - 6, 4, 12))
+
+            self.screen.blit(surf, (x - r, y - r))
+
     def draw(self):
         """绘制画面"""
         if self.state == 'menu':
             self.ui.draw_title_screen(self.screen, blink=(int(self.blink_timer / 500) % 2 == 0))
+            self._draw_virtual_buttons()
             pygame.display.flip()
             return
 
         if self.state == 'gameover':
-            # 先绘制游戏画面
             self._draw_game()
             self.ui.draw_game_over(self.screen, self.score,
                                    blink=(int(self.blink_timer / 500) % 2 == 0))
+            self._draw_virtual_buttons()
             pygame.display.flip()
             return
 
@@ -235,6 +359,7 @@ class Game:
         if self.state == 'paused':
             self.ui.draw_pause(self.screen)
 
+        self._draw_virtual_buttons()
         pygame.display.flip()
 
     def _draw_game(self):
@@ -283,14 +408,13 @@ class Game:
     async def run(self):
         """主循环（async 以支持浏览器）"""
         while self.running:
-            dt = self.clock.tick(FPS) / 1000.0  # 转换为秒
+            dt = self.clock.tick(FPS) / 1000.0
             self.blink_timer += dt * 1000
 
             self.handle_events()
             self.update(dt)
             self.draw()
 
-            # 让出控制权给浏览器事件循环
             await asyncio.sleep(0)
 
         pygame.quit()
